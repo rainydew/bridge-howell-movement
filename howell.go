@@ -70,20 +70,6 @@ func GetSlice(length int, num int) []int {
 	return res
 }
 
-func SplitMargin(length int, gocount int, totalPlayerComb int) (res []Spliter) {
-	res = make([]Spliter, gocount)
-	margin := totalPlayerComb / gocount
-	for i, _ := range res {
-		res[i].Start = GetSlice(length, i*margin)
-		if i < gocount-1 {
-			res[i].End = GetSlice(length, i*margin+margin-1)
-		} else {
-			res[i].End = GetSlice(length, totalPlayerComb-1)
-		}
-	}
-	return
-}
-
 func TotalPlayerComb(realPlayers int) int {
 	totalComb := 1 // 首轮牌手捉对情况的总组合数。只调换座位或桌号不重复计入
 	for i := 1; i < realPlayers; i += 2 {
@@ -145,16 +131,16 @@ func CheckSeat(seatOrder []int) (res [][]Seat, ok bool) {
 	return res, true
 }
 
-func FindASeat(start []int, end []int, wg *sync.WaitGroup) {
-	defer wg.Done()
+func FindASeat(start *[]int, end []int) {
 	i := 0
 	for {
-		if seat, ok := CheckSeat(start); ok {
+		if seat, ok := CheckSeat(*start); ok {
 			Solution = seat
 			return
 		}
 		i ++
-		if (i%10000 == 0 && Solution != nil) || !NextIter(&start, end) {
+		if (i%10000 == 0 && Solution != nil) || !NextIter(start, end) {
+			Solution = nil
 			return
 		}
 	}
@@ -198,7 +184,7 @@ func NextBoard(prev *[]int, last []int) bool {
 		return false
 	}
 	for i := len(last) - 1; i >= 0; i-- {
-		if (*prev)[i] < len(last)*2-i-2 { // max number of this digit
+		if (*prev)[i] < len(last)*2-i-1 {
 			(*prev)[i]++
 			return true
 		} else {
@@ -264,7 +250,7 @@ func CheckBoard(choiceBoard []int, seat [][]Seat) (ok bool) {
 	return true
 }
 
-func FindABoard(start []int, end []int, wg *sync.WaitGroup, threadId int) {
+func FindABoard(start []int, end []int, wg *sync.WaitGroup) {
 	defer wg.Done()
 	i := 0
 	res := doubleCopy(Solution)
@@ -275,7 +261,7 @@ func FindABoard(start []int, end []int, wg *sync.WaitGroup, threadId int) {
 		}
 		i++
 		if i%1000000 == 0 {
-			fmt.Println("thread", threadId, "checked", i)
+			fmt.Println(i)
 			if BoardSolution != nil {
 				return
 			}
@@ -291,6 +277,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
 	fmt.Println("go routines", goCount)
 	var tbStr string
 	fmt.Println("please input the number of tables")
@@ -311,32 +298,39 @@ func main() {
 	realPlayers := tb * 2
 	totalPlayerComb := TotalPlayerComb(realPlayers)
 
-	playRoutes := SplitMargin(tb-1, goCount, totalPlayerComb)
-	wg := &sync.WaitGroup{}
-	wg.Add(goCount)
-	for _, playRoute := range playRoutes {
-		go FindASeat(playRoute.Start, playRoute.End, wg)
-	}
-	wg.Wait()
+	playRoute := Spliter{Start: GetSlice(tb-1, 0), End: GetSlice(tb-1, totalPlayerComb-1)}
+	FindASeat(&playRoute.Start, playRoute.End)
+	fmt.Println("players solution found... finding a board solution...", Solution[0])
 
-	fmt.Println("players solution found... finding a board solution...")
-	for i := 2; i < realPlayers; i++ { // first board is always 1
-		Choice = append(Choice, i)
-	}
+	for Solution != nil {
+		for i := 2; i < realPlayers; i++ { // first board is always 1
+			Choice = append(Choice, i)
+		}
 
-	totalBoardComb := TotalBoardComb(realPlayers-2, tb) // we can always set the first board to 1, so the maxium number of board choice is round-1
+		totalBoardComb := TotalBoardComb(realPlayers-2, tb) // we can always set the first board to 1, so the maxium number of board choice is round-1
 
-	boardRoutes := SplitPerm(tb-1, goCount, totalBoardComb) // here too
-	wg = &sync.WaitGroup{}
-	wg.Add(goCount)
-	for i, boardRoute := range boardRoutes {
-		go FindABoard(boardRoute.Start, boardRoute.End, wg, i)
+		boardRoutes := SplitPerm(tb-1, goCount, totalBoardComb) // here too
+		wg := &sync.WaitGroup{}
+		wg.Add(goCount)
+		for _, boardRoute := range boardRoutes {
+			go FindABoard(boardRoute.Start, boardRoute.End, wg)
+		}
+		wg.Wait()
+		if BoardSolution != nil {
+			for i, v := range BoardSolution {
+				fmt.Printf("%d: %+v\n", i+1, v)
+			}
+			res, _ := json.Marshal(BoardSolution)
+			fmt.Println(string(res))
+			fmt.Println(time.Now().Sub(st))
+			return
+		}
+
+		if !NextBoard(&playRoute.Start, playRoute.End) {
+			panic("no board left")
+		}
+		FindASeat(&playRoute.Start, playRoute.End)
+		fmt.Println("no board fits this condition... finding another board solution...", Solution[0])
 	}
-	wg.Wait()
-	for i, v := range BoardSolution {
-		fmt.Printf("%d: %+v\n", i+1, v)
-	}
-	res, _ := json.Marshal(BoardSolution)
-	fmt.Println(string(res))
-	fmt.Println(time.Now().Sub(st))
+	panic("no solution")
 }
