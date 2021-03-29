@@ -176,6 +176,7 @@ func GetBoard(length int, boardId int) (choiceBoard []int) {
 func GetRealBoard(choiceBoard []int) (board []int) {
 	choice := make([]int, len(Choice))
 	copy(choice, Choice)
+	board = []int{1}
 	for _, v := range choiceBoard {
 		board = append(board, choice[v])
 		choice = append(choice[:v], choice[v+1:]...)
@@ -263,7 +264,7 @@ func CheckBoard(choiceBoard []int, seat [][]Seat) (ok bool) {
 	return true
 }
 
-func FindABoard(start []int, end []int, wg *sync.WaitGroup) {
+func FindABoard(start []int, end []int, wg *sync.WaitGroup, threadId int) {
 	defer wg.Done()
 	i := 0
 	res := doubleCopy(Solution)
@@ -274,7 +275,7 @@ func FindABoard(start []int, end []int, wg *sync.WaitGroup) {
 		}
 		i++
 		if i%1000000 == 0 {
-			fmt.Println(i)
+			fmt.Println("thread", threadId, "checked", i)
 			if BoardSolution != nil {
 				return
 			}
@@ -303,7 +304,7 @@ func main() {
 		panic(err)
 	}
 	if tb < 4 {
-		fmt.Println("tables for howell is at least 4")
+		fmt.Println("tables for howell is at least 4, otherwise no solution to avoid playing the same hand in different tables in the same round")
 		os.Exit(-1)
 	}
 
@@ -318,18 +319,18 @@ func main() {
 	}
 	wg.Wait()
 
-	fmt.Println("players solution found...")
-	for i := 1; i < realPlayers; i++ {
+	fmt.Println("players solution found... finding a board solution...")
+	for i := 2; i < realPlayers; i++ { // first board is always 1
 		Choice = append(Choice, i)
 	}
 
-	totalBoardComb := TotalBoardComb(realPlayers-1, tb)
+	totalBoardComb := TotalBoardComb(realPlayers-2, tb) // we can always set the first board to 1, so the maxium number of board choice is round-1
 
-	boardRoutes := SplitPerm(tb, goCount, totalBoardComb)
+	boardRoutes := SplitPerm(tb-1, goCount, totalBoardComb) // here too
 	wg = &sync.WaitGroup{}
 	wg.Add(goCount)
-	for _, boardRoute := range boardRoutes {
-		go FindABoard(boardRoute.Start, boardRoute.End, wg)
+	for i, boardRoute := range boardRoutes {
+		go FindABoard(boardRoute.Start, boardRoute.End, wg, i)
 	}
 	wg.Wait()
 	for i, v := range BoardSolution {
